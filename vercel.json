@@ -1,0 +1,11 @@
+{
+  "framework": "nextjs",
+  "regions": ["gru1"],
+  "buildCommand": "prisma generate && prisma db push --skip-generate && next build",
+  "crons": [
+    {
+      "path": "/api/reminders",
+      "schedule": "0 12,18 * * *"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "Família Chocotattoo",
+  "short_name": "Chocotattoo",
+  "description": "Agendamento e gestão - Família Chocotattoo",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#38bdf8",
+  "orientation": "portrait-primary",
+  "lang": "pt-BR",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Agendamentos",
+      "url": "/agendamentos",
+      "description": "Ver agendamentos"
+    },
+    {
+      "name": "Comandas",
+      "url": "/comandas",
+      "description": "Gerenciar comandas"
+    }
+  ]
+}

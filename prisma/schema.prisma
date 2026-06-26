@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ARTIST
+  PIERCER
+}
+
+enum ServiceType {
+  TATTOO
+  PIERCING
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ComandaStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PIX
+  CASH
+  DEBIT_CARD
+  CREDIT_CARD
+}
+
+enum AnamnesisStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  password       String
+  name           String
+  role           Role     @default(ARTIST)
+  commissionRate Float    @default(50) // % que o tatuador recebe
+  phone          String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointments       Appointment[]
+  comandas           Comanda[]
+  bodyRegions        ArtistBodyRegion[]
+  tattooStyles       ArtistTattooStyle[]
+  piercingProcedures PiercerProcedure[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?
+  birthDate DateTime?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+  comandas     Comanda[]
+  anamneses    Anamnesis[]
+}
+
+model BodyRegion {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  basePrice   Float   @default(0)
+  active      Boolean @default(true)
+
+  comandas Comanda[]
+  appointments Appointment[]
+  artists  ArtistBodyRegion[]
+}
+
+model TattooStyle {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  priceMultiplier Float @default(1)
+  active      Boolean @default(true)
+
+  appointments Appointment[]
+  artists      ArtistTattooStyle[]
+}
+
+model ArtistBodyRegion {
+  id           String @id @default(cuid())
+  artistId     String
+  bodyRegionId String
+
+  artist     User       @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  bodyRegion BodyRegion @relation(fields: [bodyRegionId], references: [id], onDelete: Cascade)
+
+  @@unique([artistId, bodyRegionId])
+}
+
+model ArtistTattooStyle {
+  id            String @id @default(cuid())
+  artistId      String
+  tattooStyleId String
+
+  artist      User        @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  tattooStyle TattooStyle @relation(fields: [tattooStyleId], references: [id], onDelete: Cascade)
+
+  @@unique([artistId, tattooStyleId])
+}
+
+model PiercingProcedure {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  basePrice   Float   @default(0)
+  active      Boolean @default(true)
+
+  appointments Appointment[]
+  comandas     Comanda[]
+  piercers     PiercerProcedure[]
+}
+
+model PiercerProcedure {
+  id                  String @id @default(cuid())
+  piercerId           String
+  piercingProcedureId String
+
+  piercer           User              @relation(fields: [piercerId], references: [id], onDelete: Cascade)
+  piercingProcedure PiercingProcedure @relation(fields: [piercingProcedureId], references: [id], onDelete: Cascade)
+
+  @@unique([piercerId, piercingProcedureId])
+}
+
+model Appointment {
+  id                   String            @id @default(cuid())
+  clientId             String
+  artistId             String
+  serviceType          ServiceType       @default(TATTOO)
+  bodyRegionId         String?
+  tattooStyleId        String?
+  piercingProcedureId  String?
+  bodyRegionCustom     String?
+  startAt              DateTime
+  endAt                DateTime
+  status               AppointmentStatus @default(SCHEDULED)
+  notes                String?
+  reminderSent         Boolean           @default(false)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  client             Client             @relation(fields: [clientId], references: [id])
+  artist             User               @relation(fields: [artistId], references: [id])
+  bodyRegion         BodyRegion?        @relation(fields: [bodyRegionId], references: [id])
+  tattooStyle        TattooStyle?       @relation(fields: [tattooStyleId], references: [id])
+  piercingProcedure  PiercingProcedure? @relation(fields: [piercingProcedureId], references: [id])
+  comanda            Comanda?
+}
+
+model Comanda {
+  id                   String         @id @default(cuid())
+  number               Int
+  clientId             String
+  artistId             String
+  appointmentId        String?        @unique
+  serviceType          ServiceType    @default(TATTOO)
+  bodyRegionId         String?
+  piercingProcedureId  String?
+  bodyRegionCustom     String?
+  description          String?
+  totalValue           Float
+  artistPercent        Float
+  artistEarning        Float          @default(0)
+  studioEarning        Float          @default(0)
+  status               ComandaStatus  @default(OPEN)
+  paymentMethod        PaymentMethod?
+  openedAt             DateTime       @default(now())
+  closedAt             DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  client            Client             @relation(fields: [clientId], references: [id])
+  artist            User               @relation(fields: [artistId], references: [id])
+  appointment       Appointment?       @relation(fields: [appointmentId], references: [id])
+  bodyRegion        BodyRegion?        @relation(fields: [bodyRegionId], references: [id])
+  piercingProcedure PiercingProcedure? @relation(fields: [piercingProcedureId], references: [id])
+}
+
+model Anamnesis {
+  id              String          @id @default(cuid())
+  clientId        String
+  token           String          @unique @default(cuid())
+  status          AnamnesisStatus @default(PENDING)
+
+  // Dados da ficha
+  hasAllergies    Boolean?
+  allergiesDetail String?
+  hasDiabetes     Boolean?
+  hasHeartProblems Boolean?
+  takesMedication Boolean?
+  medicationDetail String?
+  hasSkinConditions Boolean?
+  skinConditionsDetail String?
+  isPregnant      Boolean?
+  hadTattooBefore Boolean?
+  additionalNotes String?
+
+  approvedAt      DateTime?
+  approvedIp      String?
+  attachmentUrl   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+model WhatsAppMessage {
+  id        String   @id @default(cuid())
+  phone     String
+  direction String   // inbound | outbound
+  type      String   // reminder | booking | anamnesis | general
+  content   String
+  status    String   @default("sent")
+  metadata  String?
+  createdAt DateTime @default(now())
+}
+
+model StudioSettings {
+  id              String @id @default("default")
+  studioName      String @default("Família Chocotattoo")
+  defaultCommission Float @default(50)
+  reminderHoursBefore Int @default(24)
+  pixKey          String @default("5511982470182")
+  pixMerchantName String @default("Familia Chocotattoo")
+  pixMerchantCity String @default("SAO PAULO")
+}
+
+model WhatsAppConversation {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  step      String   @default("IDLE")
+  data      String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}

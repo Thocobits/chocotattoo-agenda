@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #141414;
+  --card-border: #262626;
+  --primary: #38bdf8;
+  --primary-hover: #0ea5e9;
+  --muted: #a3a3a3;
+  --success: #22c55e;
+  --danger: #ef4444;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+input, select, textarea {
+  background: #1a1a1a;
+  border: 1px solid var(--card-border);
+  color: var(--foreground);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  width: 100%;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+}
+
+button {
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #000;
+  font-weight: 600;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--card-border);
+  color: var(--foreground);
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  font-weight: 600;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-success { background: #166534; color: #bbf7d0; }
+.badge-warning { background: #854d0e; color: #fef08a; }
+.badge-danger { background: #991b1b; color: #fecaca; }
+.badge-info { background: #1e3a5f; color: #bfdbfe; }
