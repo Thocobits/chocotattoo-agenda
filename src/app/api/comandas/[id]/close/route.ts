@@ -7,6 +7,7 @@ import { PaymentMethod } from "@prisma/client";
 import {
   sendWhatsAppMessage,
   buildPostSessionCareMessage,
+  buildPostPiercingCareMessage,
 } from "@/lib/whatsapp";
 
 const VALID_METHODS: PaymentMethod[] = [
@@ -37,7 +38,11 @@ export async function POST(
 
   const comanda = await prisma.comanda.findUnique({
     where: { id },
-    include: { client: true, artist: true },
+    include: {
+      client: true,
+      artist: true,
+      piercingProcedure: true,
+    },
   });
 
   if (!comanda) {
@@ -77,21 +82,21 @@ export async function POST(
     });
     const studioName = settings?.studioName || "Família Chocotattoo";
 
-    const message = buildPostSessionCareMessage(
-      comanda.client.name,
-      comanda.artist.name,
-      studioName
-    );
+    const message =
+      comanda.serviceType === "PIERCING"
+        ? buildPostPiercingCareMessage(
+            comanda.client.name,
+            comanda.artist.name,
+            studioName,
+            comanda.piercingProcedure?.name
+          )
+        : buildPostSessionCareMessage(
+            comanda.client.name,
+            comanda.artist.name,
+            studioName
+          );
 
-    await sendWhatsAppMessage(comanda.client.phone, message);
-    await prisma.whatsAppMessage.create({
-      data: {
-        phone: comanda.client.phone,
-        direction: "outbound",
-        type: "aftercare",
-        content: message,
-      },
-    });
+    await sendWhatsAppMessage(comanda.client.phone, message, "aftercare");
   }
 
   return NextResponse.json(updated);

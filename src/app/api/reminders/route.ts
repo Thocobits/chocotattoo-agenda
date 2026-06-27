@@ -25,30 +25,26 @@ async function sendReminders() {
         lte: reminderWindow,
       },
     },
-    include: { client: true, artist: true },
+    include: { client: true, artist: true, piercingProcedure: true },
   });
 
   let sent = 0;
 
   for (const apt of appointments) {
+    const serviceLabel =
+      apt.serviceType === "PIERCING" ? "perfuração" : "sessão de tatuagem";
+
     const message = buildAppointmentReminderMessage(
       apt.client.name,
       apt.artist.name,
-      apt.startAt
+      apt.startAt,
+      serviceLabel
     );
 
-    await sendWhatsAppMessage(apt.client.phone, message);
+    await sendWhatsAppMessage(apt.client.phone, message, "reminder");
     await prisma.appointment.update({
       where: { id: apt.id },
       data: { reminderSent: true },
-    });
-    await prisma.whatsAppMessage.create({
-      data: {
-        phone: apt.client.phone,
-        direction: "outbound",
-        type: "reminder",
-        content: message,
-      },
     });
     sent++;
   }

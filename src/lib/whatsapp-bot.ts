@@ -6,11 +6,17 @@ import {
   buildWelcomeMessage,
   buildBookingConfirmationMessage,
   buildAnamnesisLinkMessage,
+  normalizePhone,
 } from "@/lib/whatsapp";
 
+type ServiceType = "TATTOO" | "PIERCING";
+
 type ConversationData = {
+  serviceType?: ServiceType;
   name?: string;
   region?: string;
+  procedureId?: string;
+  procedureName?: string;
   preferredDate?: string;
   artistId?: string;
   artistName?: string;
@@ -20,8 +26,10 @@ const STEPS = {
   IDLE: "IDLE",
   AWAITING_NAME: "AWAITING_NAME",
   AWAITING_REGION: "AWAITING_REGION",
+  AWAITING_PROCEDURE: "AWAITING_PROCEDURE",
   AWAITING_DATE: "AWAITING_DATE",
   AWAITING_ARTIST: "AWAITING_ARTIST",
+  AWAITING_PIERCER: "AWAITING_PIERCER",
   AWAITING_CONFIRM: "AWAITING_CONFIRM",
 } as const;
 
@@ -32,13 +40,6 @@ function parseData(json: string | null): ConversationData {
   } catch {
     return {};
   }
-}
-
-function formatPhoneBR(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length >= 12) return digits;
-  if (digits.length === 11 || digits.length === 10) return `55${digits}`;
-  return digits;
 }
 
 function extractText(
@@ -88,16 +89,24 @@ async function sendMainMenu(phone: string) {
   const settings = await prisma.studioSettings.findUnique({
     where: { id: "default" },
   });
-  const studioName = settings?.studioName || "Agenda Studio";
+  const studioName = settings?.studioName || "Família Chocotattoo";
 
-  await sendWhatsAppButtons(
+  await sendWhatsAppList(
     phone,
     buildWelcomeMessage(studioName),
+    "Ver opções",
     [
-      { id: "agendar", title: "Agendar tatuagem" },
-      { id: "anamnese", title: "Ficha anamnese" },
-      { id: "atendente", title: "Falar c/ estúdio" },
-    ]
+      {
+        title: "Serviços",
+        rows: [
+          { id: "agendar_tattoo", title: "Agendar tatuagem", description: "Nova tatuagem" },
+          { id: "agendar_piercing", title: "Body pierce", description: "Perfuração" },
+          { id: "anamnese", title: "Ficha anamnese", description: "Preencher online" },
+          { id: "atendente", title: "Falar c/ estúdio", description: "Atendimento humano" },
+        ],
+      },
+    ],
+    "menu"
   );
 }
 
@@ -105,14 +114,30 @@ async function handleIdle(phone: string, text: string, buttonId?: string) {
   const choice = buttonId || text.toLowerCase();
 
   if (
+    choice === "agendar_tattoo" ||
     choice === "agendar" ||
-    choice.includes("agendar") ||
+    choice.includes("tatuagem") ||
     choice === "1"
   ) {
-    await updateConversation(phone, STEPS.AWAITING_NAME, {});
+    await updateConversation(phone, STEPS.AWAITING_NAME, { serviceType: "TATTOO" });
     await sendWhatsAppMessage(
       phone,
-      "Ótimo! Vamos agendar sua tatuagem. 🎨\n\nQual é o seu *nome completo*?"
+      "Ótimo! Vamos agendar sua tatuagem. 🎨\n\nQual é o seu *nome completo*?",
+      "booking"
+    );
+    return;
+  }
+
+  if (
+    choice === "agendar_piercing" ||
+    choice.includes("pierce") ||
+    choice.includes("perfura")
+  ) {
+    await updateConversation(phone, STEPS.AWAITING_NAME, { serviceType: "PIERCING" });
+    await sendWhatsAppMessage(
+      phone,
+      "Ótimo! Vamos agendar sua perfuração. ✨\n\nQual é o seu *nome completo*?",
+      "booking"
     );
     return;
   }
@@ -135,7 +160,8 @@ async function handleIdle(phone: string, text: string, buttonId?: string) {
   ) {
     await sendWhatsAppMessage(
       phone,
-      "Um atendente do estúdio entrará em contato em breve. Enquanto isso, descreva sua dúvida aqui."
+      "Um atendente do estúdio entrará em contato em breve. Enquanto isso, descreva sua dúvida aqui.",
+      "general"
     );
     await updateConversation(phone, STEPS.IDLE);
     return;
@@ -155,19 +181,20 @@ async function handleIdle(phone: string, text: string, buttonId?: string) {
 }
 
 async function handleAnamnesisRequest(phone: string) {
-  const formattedPhone = formatPhoneBR(phone);
+  const formattedPhone = normalizePhone(phone);
   let client = await prisma.client.findFirst({
-    where: {
-      OR: [{ phone: formattedPhone }, { phone }],
-    },
+    where: { OR: [{ phone: formattedPhone }, { phone }] },
   });
 
   if (!client) {
     await sendWhatsAppMessage(
       phone,
-      "Não encontramos seu cadastro. Informe seu *nome completo* para criarmos sua ficha:"
+      "Não encontramos seu cadastro. Informe seu *nome completo* para criarmos sua ficha:",
+      "anamnesis"
     );
-    await updateConversation(phone, STEPS.AWAITING_NAME, { region: "__anamnese__" });
+    await updateConversation(phone, STEPS.AWAITING_NAME, {
+      region: "__anamnese__",
+    });
     return;
   }
 
@@ -179,13 +206,14 @@ async function handleAnamnesisRequest(phone: string) {
   const link = `${baseUrl}/anamnese/form/${anamnesis.token}`;
   await sendWhatsAppMessage(
     phone,
-    buildAnamnesisLinkMessage(client.name, link)
+    buildAnamnesisLinkMessage(client.name, link),
+    "anamnesis"
   );
   await updateConversation(phone, STEPS.IDLE);
 }
 
 async function handleConfirmAppointment(phone: string) {
-  const formattedPhone = formatPhoneBR(phone);
+  const formattedPhone = normalizePhone(phone);
   const client = await prisma.client.findFirst({
     where: { OR: [{ phone: formattedPhone }, { phone }] },
   });
@@ -222,12 +250,13 @@ async function handleConfirmAppointment(phone: string) {
       month: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    }).format(appointment.startAt)} com ${appointment.artist.name}.`
+    }).format(appointment.startAt)} com ${appointment.artist.name}.`,
+    "booking"
   );
 }
 
 async function handleCancelAppointment(phone: string) {
-  const formattedPhone = formatPhoneBR(phone);
+  const formattedPhone = normalizePhone(phone);
   const client = await prisma.client.findFirst({
     where: { OR: [{ phone: formattedPhone }, { phone }] },
   });
@@ -258,7 +287,8 @@ async function handleCancelAppointment(phone: string) {
 
   await sendWhatsAppMessage(
     phone,
-    "Agendamento cancelado. Para reagendar, envie *agendar* ou use o menu."
+    "Agendamento cancelado. Para reagendar, envie *oi* para o menu.",
+    "booking"
   );
   await sendMainMenu(phone);
 }
@@ -274,7 +304,7 @@ async function handleAwaitingName(
   }
 
   if (data.region === "__anamnese__") {
-    const formattedPhone = formatPhoneBR(phone);
+    const formattedPhone = normalizePhone(phone);
     const client = await prisma.client.upsert({
       where: { phone: formattedPhone },
       update: { name: text },
@@ -289,9 +319,50 @@ async function handleAwaitingName(
     const link = `${baseUrl}/anamnese/form/${anamnesis.token}`;
     await sendWhatsAppMessage(
       phone,
-      buildAnamnesisLinkMessage(client.name, link)
+      buildAnamnesisLinkMessage(client.name, link),
+      "anamnesis"
     );
     await updateConversation(phone, STEPS.IDLE, {});
+    return;
+  }
+
+  if (data.serviceType === "PIERCING") {
+    const procedures = await prisma.piercingProcedure.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      take: 10,
+    });
+
+    if (procedures.length === 0) {
+      await sendWhatsAppMessage(
+        phone,
+        "No momento não há procedimentos disponíveis. Entre em contato com o estúdio."
+      );
+      await updateConversation(phone, STEPS.IDLE, {});
+      return;
+    }
+
+    await updateConversation(phone, STEPS.AWAITING_PROCEDURE, {
+      ...data,
+      name: text,
+    });
+
+    await sendWhatsAppList(
+      phone,
+      `Prazer, ${text.split(" ")[0]}! ✨\n\nQual *procedimento* você deseja?`,
+      "Ver procedimentos",
+      [
+        {
+          title: "Body Pierce",
+          rows: procedures.map((p) => ({
+            id: `proc_${p.id}`,
+            title: p.name,
+            description: p.basePrice > 0 ? `A partir de R$ ${p.basePrice}` : undefined,
+          })),
+        },
+      ],
+      "booking"
+    );
     return;
   }
 
@@ -301,7 +372,39 @@ async function handleAwaitingName(
   });
   await sendWhatsAppMessage(
     phone,
-    `Prazer, ${text.split(" ")[0]}! 😊\n\nQual *região do corpo* você deseja tatuar?\n\nEx: braço, costas, perna...`
+    `Prazer, ${text.split(" ")[0]}! 😊\n\nQual *região do corpo* você deseja tatuar?\n\nEx: braço, costas, perna...`,
+    "booking"
+  );
+}
+
+async function handleAwaitingProcedure(
+  phone: string,
+  buttonId: string | undefined,
+  data: ConversationData
+) {
+  const procedureId = buttonId?.replace("proc_", "");
+  if (!procedureId) {
+    await sendWhatsAppMessage(phone, "Selecione um procedimento da lista.");
+    return;
+  }
+
+  const procedure = await prisma.piercingProcedure.findUnique({
+    where: { id: procedureId },
+  });
+  if (!procedure) {
+    await sendWhatsAppMessage(phone, "Procedimento não encontrado. Tente novamente.");
+    return;
+  }
+
+  await updateConversation(phone, STEPS.AWAITING_DATE, {
+    ...data,
+    procedureId: procedure.id,
+    procedureName: procedure.name,
+  });
+  await sendWhatsAppMessage(
+    phone,
+    `Procedimento: *${procedure.name}* ✨\n\nQual *data e horário* você prefere?\n\nEx: 15/07 às 14h`,
+    "booking"
   );
 }
 
@@ -316,7 +419,8 @@ async function handleAwaitingRegion(
   });
   await sendWhatsAppMessage(
     phone,
-    "Qual *data e horário* você prefere?\n\nEx: 15/07 às 14h"
+    "Qual *data e horário* você prefere?\n\nEx: 15/07 às 14h",
+    "booking"
   );
 }
 
@@ -325,92 +429,110 @@ async function handleAwaitingDate(
   text: string,
   data: ConversationData
 ) {
-  const artists = await prisma.user.findMany({
-    where: { role: "ARTIST", active: true },
+  const isPiercing = data.serviceType === "PIERCING";
+  const role = isPiercing ? "PIERCER" : "ARTIST";
+  const label = isPiercing ? "perfurador" : "tatuador";
+
+  const professionals = await prisma.user.findMany({
+    where: { role, active: true },
     select: { id: true, name: true },
     take: 10,
   });
 
-  if (artists.length === 0) {
+  if (professionals.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      "No momento não há tatuadores disponíveis. Entre em contato com o estúdio."
+      `No momento não há ${label}es disponíveis. Entre em contato com o estúdio.`
     );
     await updateConversation(phone, STEPS.IDLE, {});
     return;
   }
 
-  if (artists.length === 1) {
+  const nextStep = isPiercing ? STEPS.AWAITING_PIERCER : STEPS.AWAITING_ARTIST;
+
+  if (professionals.length === 1) {
+    const pro = professionals[0];
     await updateConversation(phone, STEPS.AWAITING_CONFIRM, {
       ...data,
       preferredDate: text,
-      artistId: artists[0].id,
-      artistName: artists[0].name,
+      artistId: pro.id,
+      artistName: pro.name,
     });
-    await sendWhatsAppButtons(
-      phone,
-      `Resumo do agendamento:\n\n👤 ${data.name}\n📍 ${data.region}\n📅 ${text}\n🎨 ${artists[0].name}\n\nConfirma?`,
-      [
-        { id: "confirmar_agendamento", title: "Confirmar" },
-        { id: "cancelar_agendamento", title: "Cancelar" },
-      ]
-    );
+    await sendConfirmSummary(phone, { ...data, preferredDate: text, artistName: pro.name });
     return;
   }
 
-  await updateConversation(phone, STEPS.AWAITING_ARTIST, {
+  await updateConversation(phone, nextStep, {
     ...data,
     preferredDate: text,
   });
 
   await sendWhatsAppList(
     phone,
-    "Escolha o tatuador:",
-    "Ver tatuadores",
+    `Escolha o ${label}:`,
+    `Ver ${label}es`,
     [
       {
-        title: "Tatuadores",
-        rows: artists.map((a) => ({
-          id: `artist_${a.id}`,
-          title: a.name,
+        title: isPiercing ? "Perfuradores" : "Tatuadores",
+        rows: professionals.map((p) => ({
+          id: `artist_${p.id}`,
+          title: p.name,
         })),
       },
-    ]
+    ],
+    "booking"
   );
 }
 
-async function handleAwaitingArtist(
-  phone: string,
-  text: string,
-  buttonId: string | undefined,
-  data: ConversationData
-) {
-  const artistId = buttonId?.replace("artist_", "");
-  if (!artistId) {
-    await sendWhatsAppMessage(phone, "Selecione um tatuador da lista.");
-    return;
+function buildSummary(data: ConversationData) {
+  const lines = [`👤 ${data.name}`];
+  if (data.serviceType === "PIERCING") {
+    lines.push(`💎 ${data.procedureName}`);
+  } else {
+    lines.push(`📍 ${data.region}`);
   }
+  lines.push(`📅 ${data.preferredDate}`);
+  lines.push(`🎨 ${data.artistName}`);
+  return lines.join("\n");
+}
 
-  const artist = await prisma.user.findUnique({ where: { id: artistId } });
-  if (!artist) {
-    await sendWhatsAppMessage(phone, "Tatuador não encontrado. Tente novamente.");
-    return;
-  }
-
-  await updateConversation(phone, STEPS.AWAITING_CONFIRM, {
-    ...data,
-    artistId: artist.id,
-    artistName: artist.name,
-  });
-
+async function sendConfirmSummary(phone: string, data: ConversationData) {
   await sendWhatsAppButtons(
     phone,
-    `Resumo do agendamento:\n\n👤 ${data.name}\n📍 ${data.region}\n📅 ${data.preferredDate}\n🎨 ${artist.name}\n\nConfirma?`,
+    `Resumo do agendamento:\n\n${buildSummary(data)}\n\nConfirma?`,
     [
       { id: "confirmar_agendamento", title: "Confirmar" },
       { id: "cancelar_agendamento", title: "Cancelar" },
-    ]
+    ],
+    "booking"
   );
+}
+
+async function handleAwaitingProfessional(
+  phone: string,
+  buttonId: string | undefined,
+  data: ConversationData
+) {
+  const professionalId = buttonId?.replace("artist_", "");
+  if (!professionalId) {
+    await sendWhatsAppMessage(phone, "Selecione um profissional da lista.");
+    return;
+  }
+
+  const professional = await prisma.user.findUnique({ where: { id: professionalId } });
+  if (!professional) {
+    await sendWhatsAppMessage(phone, "Profissional não encontrado. Tente novamente.");
+    return;
+  }
+
+  const updated = {
+    ...data,
+    artistId: professional.id,
+    artistName: professional.name,
+  };
+
+  await updateConversation(phone, STEPS.AWAITING_CONFIRM, updated);
+  await sendConfirmSummary(phone, updated);
 }
 
 async function handleAwaitingConfirm(
@@ -432,11 +554,11 @@ async function handleAwaitingConfirm(
     !choice.includes("confirmar") &&
     choice !== "sim"
   ) {
-    await sendWhatsAppMessage(phone, 'Responda *Confirmar* ou *Cancelar*.');
+    await sendWhatsAppMessage(phone, "Responda *Confirmar* ou *Cancelar*.");
     return;
   }
 
-  const formattedPhone = formatPhoneBR(phone);
+  const formattedPhone = normalizePhone(phone);
   const client = await prisma.client.upsert({
     where: { phone: formattedPhone },
     update: { name: data.name || "Cliente" },
@@ -444,18 +566,28 @@ async function handleAwaitingConfirm(
   });
 
   const startAt = parsePreferredDate(data.preferredDate || "");
-  const endAt = new Date(startAt.getTime() + 2 * 60 * 60 * 1000);
+  const endAt = new Date(startAt.getTime() + (data.serviceType === "PIERCING" ? 30 : 120) * 60 * 1000);
+
+  const isPiercing = data.serviceType === "PIERCING";
+  const extra = isPiercing
+    ? `\n💎 Procedimento: ${data.procedureName}`
+    : `\n📍 Região: ${data.region}`;
 
   const appointment = await prisma.appointment.create({
     data: {
       clientId: client.id,
       artistId: data.artistId!,
+      serviceType: isPiercing ? "PIERCING" : "TATTOO",
+      piercingProcedureId: isPiercing ? data.procedureId : null,
+      bodyRegionCustom: !isPiercing ? data.region : null,
       startAt,
       endAt,
       status: "SCHEDULED",
-      notes: `Região: ${data.region}. Agendado via WhatsApp.`,
+      notes: isPiercing
+        ? `Procedimento: ${data.procedureName}. Agendado via WhatsApp.`
+        : `Região: ${data.region}. Agendado via WhatsApp.`,
     },
-    include: { artist: true },
+    include: { artist: true, piercingProcedure: true },
   });
 
   await sendWhatsAppMessage(
@@ -463,8 +595,10 @@ async function handleAwaitingConfirm(
     buildBookingConfirmationMessage(
       client.name,
       appointment.artist.name,
-      appointment.startAt
-    )
+      appointment.startAt,
+      extra
+    ),
+    "booking"
   );
 
   const anamnesis = await prisma.anamnesis.create({
@@ -474,13 +608,15 @@ async function handleAwaitingConfirm(
   const link = `${baseUrl}/anamnese/form/${anamnesis.token}`;
   await sendWhatsAppMessage(
     phone,
-    `📋 Também enviamos o link da ficha de anamnese:\n${link}`
+    `📋 Também enviamos o link da ficha de anamnese:\n${link}`,
+    "anamnesis"
   );
 
   await updateConversation(phone, STEPS.IDLE, {});
   await sendWhatsAppMessage(
     phone,
-    "Agendamento registrado! O estúdio pode entrar em contato para confirmar horário exato."
+    "Agendamento registrado! O estúdio entrará em contato para confirmar o horário exato.",
+    "booking"
   );
 }
 
@@ -513,7 +649,7 @@ export async function processIncomingMessage(
   msg: Record<string, unknown>
 ) {
   const { text, buttonId } = extractText(msg);
-  const normalizedPhone = formatPhoneBR(phone);
+  const normalizedPhone = normalizePhone(phone);
 
   if (!text && !buttonId) return;
 
@@ -528,7 +664,8 @@ export async function processIncomingMessage(
       lowerText === "ola" ||
       lowerText === "menu" ||
       lowerText === "inicio" ||
-      lowerText === "início")
+      lowerText === "início" ||
+      lowerText === "ajuda")
   ) {
     await sendMainMenu(normalizedPhone);
     return;
@@ -544,11 +681,15 @@ export async function processIncomingMessage(
     case STEPS.AWAITING_REGION:
       await handleAwaitingRegion(normalizedPhone, text, data);
       break;
+    case STEPS.AWAITING_PROCEDURE:
+      await handleAwaitingProcedure(normalizedPhone, buttonId, data);
+      break;
     case STEPS.AWAITING_DATE:
       await handleAwaitingDate(normalizedPhone, text, data);
       break;
     case STEPS.AWAITING_ARTIST:
-      await handleAwaitingArtist(normalizedPhone, text, buttonId, data);
+    case STEPS.AWAITING_PIERCER:
+      await handleAwaitingProfessional(normalizedPhone, buttonId, data);
       break;
     case STEPS.AWAITING_CONFIRM:
       await handleAwaitingConfirm(normalizedPhone, text, buttonId, data);
@@ -566,6 +707,12 @@ export async function logWhatsAppMessage(
   metadata?: string
 ) {
   await prisma.whatsAppMessage.create({
-    data: { phone, direction, type, content, metadata },
+    data: {
+      phone: normalizePhone(phone),
+      direction,
+      type,
+      content: content.slice(0, 4000),
+      metadata,
+    },
   });
 }

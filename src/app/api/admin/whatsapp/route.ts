@@ -40,15 +40,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await sendWhatsAppMessage(phone, message);
-  await prisma.whatsAppMessage.create({
-    data: {
-      phone,
-      direction: "outbound",
-      type: "general",
-      content: message,
-    },
-  });
-
-  return NextResponse.json({ success: true });
+  try {
+    await sendWhatsAppMessage(phone, message, "general");
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Falha ao enviar mensagem",
+      },
+      { status: 500 }
+    );
+  }
 }

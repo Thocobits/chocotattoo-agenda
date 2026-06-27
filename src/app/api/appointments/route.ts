@@ -126,15 +126,7 @@ export async function POST(req: NextRequest) {
         appointment.startAt
       ) + extra;
 
-    await sendWhatsAppMessage(appointment.client.phone, message);
-    await prisma.whatsAppMessage.create({
-      data: {
-        phone: appointment.client.phone,
-        direction: "outbound",
-        type: "booking",
-        content: message,
-      },
-    });
+    await sendWhatsAppMessage(appointment.client.phone, message, "booking");
   }
 
   return NextResponse.json(appointment);
